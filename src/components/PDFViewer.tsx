@@ -57,6 +57,7 @@ export function PDFViewer({
   const pageElementsRef = useRef<Map<number, HTMLDivElement>>(new Map())
   const canvasElementsRef = useRef<Map<number, HTMLCanvasElement>>(new Map())
   const renderedZoomRef = useRef<Map<number, number>>(new Map())
+  const renderingRef = useRef<Map<number, boolean>>(new Map())
   const visiblePagesRef = useRef<Set<number>>(new Set())
   const renderObserverRef = useRef<IntersectionObserver | null>(null)
   const scrollAnchorRef = useRef<{ page: number; ratio: number }>({ page: 1, ratio: 0 })
@@ -152,17 +153,32 @@ export function PDFViewer({
 
   // ─── Render a single page onto its canvas ───
   const renderPage = useCallback(async (pageNum: number) => {
+    if (renderingRef.current.get(pageNum)) return
+    renderingRef.current.set(pageNum, true)
+
     const pdfDoc = pdfRef.current
-    if (!pdfDoc) return
+    if (!pdfDoc) {
+      renderingRef.current.delete(pageNum)
+      return
+    }
 
     const currentZoom = zoomRef.current
-    if (renderedZoomRef.current.get(pageNum) === currentZoom) return
+    if (renderedZoomRef.current.get(pageNum) === currentZoom) {
+      renderingRef.current.delete(pageNum)
+      return
+    }
 
     const canvas = canvasElementsRef.current.get(pageNum)
-    if (!canvas) return
+    if (!canvas) {
+      renderingRef.current.delete(pageNum)
+      return
+    }
 
     const size = pageSizesRef.current[pageNum - 1]
-    if (!size) return
+    if (!size) {
+      renderingRef.current.delete(pageNum)
+      return
+    }
 
     const scale = currentZoom / 100
     const width = size.width * scale
@@ -180,7 +196,10 @@ export function PDFViewer({
     }
 
     const ctx = canvas.getContext('2d')
-    if (!ctx) return
+    if (!ctx) {
+      renderingRef.current.delete(pageNum)
+      return
+    }
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.clearRect(0, 0, width, height)
@@ -190,6 +209,7 @@ export function PDFViewer({
 
       if (zoomRef.current !== currentZoom) {
         pdfPage.cleanup()
+        renderingRef.current.delete(pageNum)
         return
       }
 
@@ -204,6 +224,8 @@ export function PDFViewer({
       pdfPage.cleanup()
     } catch (err) {
       console.error(`[PDFViewer] Failed to render page ${pageNum}:`, err)
+    } finally {
+      renderingRef.current.delete(pageNum)
     }
   }, [])
 

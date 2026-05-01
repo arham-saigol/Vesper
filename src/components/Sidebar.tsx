@@ -341,6 +341,10 @@ function FolderItem({
   return (
     <div>
       <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={folder.expanded}
+        aria-label={folder.name}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
         style={{
@@ -354,6 +358,12 @@ function FolderItem({
           color: 'var(--text-secondary)',
         }}
         onClick={onToggle}
+        onKeyDown={e => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onToggle()
+          }
+        }}
       >
         <svg
           width={14}
@@ -385,7 +395,6 @@ function FolderItem({
         >
           {folder.name}
         </span>
-        {hovered && (
           <button
             onClick={e => {
               e.stopPropagation()
@@ -403,7 +412,10 @@ function FolderItem({
               alignItems: 'center',
               borderRadius: 4,
               flexShrink: 0,
+              opacity: hovered ? 1 : 0,
             }}
+            onFocus={() => setHovered(true)}
+            onBlur={() => setHovered(false)}
             onMouseEnter={e => {
               (e.currentTarget as HTMLButtonElement).style.background = 'var(--bg-card-hover)'
               ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)'
@@ -418,7 +430,6 @@ function FolderItem({
               <line x1="5" y1="12" x2="19" y2="12" />
             </svg>
           </button>
-        )}
       </div>
 
       {folder.expanded && (
@@ -426,7 +437,16 @@ function FolderItem({
           {folder.files.map(file => (
             <div
               key={file.id}
+              role="button"
+              tabIndex={0}
+              aria-label={file.name}
               onClick={() => onOpenFile(file)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  onOpenFile(file)
+                }
+              }}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -448,6 +468,16 @@ function FolderItem({
                 }
               }}
               onMouseLeave={e => {
+                if (file.id !== activeFileId) {
+                  (e.currentTarget as HTMLDivElement).style.background = 'transparent'
+                }
+              }}
+              onFocus={e => {
+                if (file.id !== activeFileId) {
+                  (e.currentTarget as HTMLDivElement).style.background = 'var(--bg-card-hover)'
+                }
+              }}
+              onBlur={e => {
                 if (file.id !== activeFileId) {
                   (e.currentTarget as HTMLDivElement).style.background = 'transparent'
                 }

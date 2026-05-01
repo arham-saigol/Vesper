@@ -1,12 +1,12 @@
 @font-face {
-  font-family: 'VesperSerif';
+  font-family: VesperSerif;
   src: url('/fonts/AnthropicSerif-Romans-Variable-25x258.ttf') format('truetype');
   font-weight: 100 900;
   font-style: normal;
 }
 
 @font-face {
-  font-family: 'VesperSans';
+  font-family: VesperSans;
   src: url('/fonts/AnthropicSans-Romans-Variable-25x258.ttf') format('truetype');
   font-weight: 100 900;
   font-style: normal;
@@ -59,7 +59,7 @@ html, body, #root {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  font-family: 'VesperSans', 'Inter', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+  font-family: VesperSans, Inter, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
   color: var(--text-primary);
   background: var(--bg-primary);
   -webkit-font-smoothing: antialiased;

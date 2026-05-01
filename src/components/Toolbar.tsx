@@ -11,6 +11,7 @@ interface ToolbarProps {
 
 export function Toolbar({ zoom, page, totalPages, onZoomIn, onZoomOut, onGoToPage }: ToolbarProps) {
   const inputRef = useRef<HTMLInputElement>(null)
+  const commitInProgressRef = useRef(false)
   const [inputValue, setInputValue] = useState(String(page))
 
   // Sync input with external page changes (e.g. scrolling), but not while focused
@@ -144,11 +145,17 @@ export function Toolbar({ zoom, page, totalPages, onZoomIn, onZoomOut, onGoToPag
           inputMode="numeric"
           value={inputValue}
           onChange={e => setInputValue(e.target.value)}
-          onBlur={commitPage}
+          onBlur={() => {
+            if (commitInProgressRef.current) return
+            commitPage()
+          }}
           onKeyDown={e => {
             if (e.key === 'Enter') {
+              e.preventDefault()
+              commitInProgressRef.current = true
               commitPage()
               ;(e.target as HTMLInputElement).blur()
+              commitInProgressRef.current = false
             }
           }}
           style={{

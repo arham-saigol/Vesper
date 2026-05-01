@@ -4,6 +4,25 @@ import * as fs from 'fs'
 
 const DATA_PATH = path.join(app.getPath('userData'), 'library.json')
 
+function validateLibraryData(data: unknown): { folders: unknown[]; theme: string } | null {
+  if (typeof data !== 'object' || data === null) return null
+  const obj = data as Record<string, unknown>
+  if (!Array.isArray(obj.folders)) return null
+  for (const folder of obj.folders) {
+    if (typeof folder !== 'object' || folder === null) return null
+    const f = folder as Record<string, unknown>
+    if (typeof f.id !== 'string' || typeof f.name !== 'string' || typeof f.expanded !== 'boolean') return null
+    if (!Array.isArray(f.files)) return null
+    for (const file of f.files) {
+      if (typeof file !== 'object' || file === null) return null
+      const fi = file as Record<string, unknown>
+      if (typeof fi.id !== 'string' || typeof fi.name !== 'string' || typeof fi.path !== 'string') return null
+    }
+  }
+  if (obj.theme !== 'dark' && obj.theme !== 'light') return null
+  return obj as { folders: unknown[]; theme: string }
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1400,
@@ -19,7 +38,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
     },
   })
 
@@ -51,15 +70,21 @@ ipcMain.handle('get-library', async () => {
   try {
     if (fs.existsSync(DATA_PATH)) {
       const data = fs.readFileSync(DATA_PATH, 'utf-8')
-      return JSON.parse(data)
+      const parsed = JSON.parse(data)
+      const validated = validateLibraryData(parsed)
+      if (validated) return validated
     }
-    return { folders: [], theme: 'dark' }
   } catch {
-    return { folders: [], theme: 'dark' }
+    // ignore
   }
+  return { folders: [], theme: 'dark' }
 })
 
 ipcMain.handle('save-library', async (_, data: unknown) => {
+  if (!validateLibraryData(data)) {
+    console.error('[main] save-library received invalid data', data)
+    return false
+  }
   try {
     fs.writeFileSync(DATA_PATH, JSON.stringify(data, null, 2))
     return true
@@ -79,9 +104,10 @@ ipcMain.handle('select-pdf', async () => {
 
 ipcMain.handle('read-pdf', async (_, filePath: string) => {
   try {
-    const buffer = fs.readFileSync(filePath)
+    const buffer = await fs.promises.readFile(filePath)
     return new Uint8Array(buffer)
-  } catch {
+  } catch (err) {
+    console.error('[main] read-pdf failed:', err)
     return null
   }
 })
