@@ -1,0 +1,111 @@
+@font-face {
+  font-family: 'VesperSerif';
+  src: url('/fonts/AnthropicSerif-Romans-Variable-25x258.ttf') format('truetype');
+  font-weight: 100 900;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'VesperSans';
+  src: url('/fonts/AnthropicSans-Romans-Variable-25x258.ttf') format('truetype');
+  font-weight: 100 900;
+  font-style: normal;
+}
+
+:root {
+  --accent: #D97757;
+  --accent-hover-dark: #e0855e;
+  --accent-hover-light: #c4623d;
+  --accent-press: #b8522f;
+  --destructive: #dc2626;
+  --success: #22c55e;
+}
+
+[data-theme="dark"] {
+  --bg-primary: #262624;
+  --bg-surface: #1e1e1c;
+  --bg-card: #2e2e2b;
+  --bg-card-hover: #343430;
+  --text-primary: #faf9f5;
+  --text-secondary: #c2c0b6;
+  --text-muted: #9c9a92;
+  --border: rgba(255,255,255,0.08);
+  --border-strong: rgba(255,255,255,0.14);
+  --scrollbar-thumb: #3e3e3a;
+  --scrollbar-track: transparent;
+}
+
+[data-theme="light"] {
+  --bg-primary: #faf9f5;
+  --bg-surface: #f0efe9;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f7f6f2;
+  --text-primary: #3d3d3a;
+  --text-secondary: #73726c;
+  --text-muted: #9c9a92;
+  --border: rgba(0,0,0,0.08);
+  --border-strong: rgba(0,0,0,0.15);
+  --scrollbar-thumb: #d4d3cd;
+  --scrollbar-track: transparent;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: 'VesperSans', 'Inter', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* PDF Viewer — dark-mode canvas filter for premium readability */
+.pdf-page-canvas {
+  display: block;
+  cursor: default;
+  will-change: transform;
+}
+
+[data-theme="dark"] .pdf-page-canvas {
+  /* invert(0.851) turns white (#fff) into ~#262626, blending with the page
+     wrapper background (#262624). hue-rotate(180deg) restores natural-looking
+     colors. brightness(1.05) + contrast(1.05) fine-tune readability. */
+  filter: invert(0.851) hue-rotate(180deg) brightness(1.05) contrast(1.05);
+}
+
+/* Frameless drag region */
+.drag-region {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
