@@ -29,6 +29,7 @@ export function Sidebar({
   const [addingFolder, setAddingFolder] = useState(false)
   const [newFolderName, setNewFolderName] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
+  const commitSuppressedRef = useRef(false)
 
   useEffect(() => {
     if (addingFolder && inputRef.current) {
@@ -42,11 +43,17 @@ export function Sidebar({
       setNewFolderName('')
     }
     setAddingFolder(false)
+    commitSuppressedRef.current = false
   }
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') handleAddFolder()
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      commitSuppressedRef.current = false
+      handleAddFolder()
+    }
     if (e.key === 'Escape') {
+      commitSuppressedRef.current = true
       setAddingFolder(false)
       setNewFolderName('')
     }
@@ -162,7 +169,13 @@ export function Sidebar({
                   value={newFolderName}
                   onChange={e => setNewFolderName(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  onBlur={handleAddFolder}
+                  onBlur={() => {
+                    if (!commitSuppressedRef.current) {
+                      handleAddFolder()
+                    } else {
+                      commitSuppressedRef.current = false
+                    }
+                  }}
                   placeholder="Folder name"
                   className="no-drag"
                   style={{
@@ -275,6 +288,8 @@ export function Sidebar({
       <button
         onClick={onToggle}
         className="no-drag"
+        aria-label={open ? 'Close sidebar' : 'Open sidebar'}
+        aria-expanded={open}
         style={{
           position: 'absolute',
           left: open ? 246 : 0,
@@ -399,6 +414,13 @@ function FolderItem({
             onClick={e => {
               e.stopPropagation()
               onAddFile()
+            }}
+            onKeyDown={e => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.stopPropagation()
+                e.preventDefault()
+                onAddFile()
+              }
             }}
             title="Add PDF"
             className="no-drag"

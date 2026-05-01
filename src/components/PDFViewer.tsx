@@ -58,6 +58,7 @@ export function PDFViewer({
   const canvasElementsRef = useRef<Map<number, HTMLCanvasElement>>(new Map())
   const renderedZoomRef = useRef<Map<number, number>>(new Map())
   const renderingRef = useRef<Map<number, boolean>>(new Map())
+  const rerenderRequestedRef = useRef<Map<number, boolean>>(new Map())
   const visiblePagesRef = useRef<Set<number>>(new Set())
   const renderObserverRef = useRef<IntersectionObserver | null>(null)
   const scrollAnchorRef = useRef<{ page: number; ratio: number }>({ page: 1, ratio: 0 })
@@ -153,7 +154,10 @@ export function PDFViewer({
 
   // ─── Render a single page onto its canvas ───
   const renderPage = useCallback(async (pageNum: number) => {
-    if (renderingRef.current.get(pageNum)) return
+    if (renderingRef.current.get(pageNum)) {
+      rerenderRequestedRef.current.set(pageNum, true)
+      return
+    }
     renderingRef.current.set(pageNum, true)
 
     const pdfDoc = pdfRef.current
@@ -207,8 +211,9 @@ export function PDFViewer({
     try {
       const pdfPage = await pdfDoc.getPage(pageNum)
 
-      if (zoomRef.current !== currentZoom) {
+      if (zoomRef.current !== currentZoom || pdfRef.current !== pdfDoc) {
         pdfPage.cleanup()
+        rerenderRequestedRef.current.set(pageNum, true)
         renderingRef.current.delete(pageNum)
         return
       }
@@ -220,12 +225,21 @@ export function PDFViewer({
         viewport,
       }).promise
 
-      renderedZoomRef.current.set(pageNum, currentZoom)
       pdfPage.cleanup()
     } catch (err) {
       console.error(`[PDFViewer] Failed to render page ${pageNum}:`, err)
     } finally {
       renderingRef.current.delete(pageNum)
+      const needsRerender =
+        rerenderRequestedRef.current.get(pageNum) ||
+        zoomRef.current !== currentZoom ||
+        pdfRef.current !== pdfDoc
+      if (needsRerender) {
+        rerenderRequestedRef.current.delete(pageNum)
+        queueMicrotask(() => renderPage(pageNum))
+      } else {
+        renderedZoomRef.current.set(pageNum, currentZoom)
+      }
     }
   }, [])
 

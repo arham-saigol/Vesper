@@ -104,6 +104,23 @@ ipcMain.handle('select-pdf', async () => {
 
 ipcMain.handle('read-pdf', async (_, filePath: string) => {
   try {
+    if (!filePath.toLowerCase().endsWith('.pdf')) {
+      console.error('[main] read-pdf rejected: not a .pdf file:', filePath)
+      return null
+    }
+
+    const fd = await fs.promises.open(filePath, 'r')
+    try {
+      const headerBuf = Buffer.alloc(5)
+      const { bytesRead } = await fd.read(headerBuf, 0, 5, 0)
+      if (bytesRead < 5 || headerBuf.toString('ascii', 0, 5) !== '%PDF-') {
+        console.error('[main] read-pdf rejected: missing PDF header:', filePath)
+        return null
+      }
+    } finally {
+      await fd.close()
+    }
+
     const buffer = await fs.promises.readFile(filePath)
     return new Uint8Array(buffer)
   } catch (err) {
