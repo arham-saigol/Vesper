@@ -25,6 +25,8 @@ export interface ElectronAPI {
   readPdf: (filePath: string) => Promise<Uint8Array | null>
   getPdfWorker: () => Promise<string | null>
   resolveWasmPath: (filename: string) => Promise<string>
+  resolveCMapPath: (filename: string) => Promise<string>
+  resolveStandardFontPath: (filename: string) => Promise<string>
   readBinaryFile: (filePath: string) => Promise<Uint8Array | null>
   minimizeWindow: () => Promise<void>
   maximizeWindow: () => Promise<void>

@@ -73,16 +73,30 @@ async function initPdfWorker() {
  * which can read the files from inside the asar bundle using Node fs.
  */
 class ElectronBinaryDataFactory {
-  constructor(_opts: { cMapUrl?: string | null; standardFontDataUrl?: string | null; wasmUrl?: string | null }) {}
+  private opts: { cMapUrl?: string | null; standardFontDataUrl?: string | null; wasmUrl?: string | null }
+
+  constructor(opts: { cMapUrl?: string | null; standardFontDataUrl?: string | null; wasmUrl?: string | null }) {
+    this.opts = opts
+  }
 
   async fetch({ kind, filename }: { kind: string; filename: string }): Promise<Uint8Array> {
-    if (kind !== 'wasmUrl') {
-      throw new Error(`Unsupported binary data kind: ${kind}`)
+    let filePath: string
+    switch (kind) {
+      case 'wasmUrl':
+        filePath = await window.electronAPI.resolveWasmPath(filename)
+        break
+      case 'cMapUrl':
+        filePath = await window.electronAPI.resolveCMapPath(filename)
+        break
+      case 'standardFontDataUrl':
+        filePath = await window.electronAPI.resolveStandardFontPath(filename)
+        break
+      default:
+        throw new Error(`Unsupported binary data kind: ${kind}`)
     }
-    const filePath = await window.electronAPI.resolveWasmPath(filename)
     const buffer = await window.electronAPI.readBinaryFile(filePath)
     if (!buffer) {
-      throw new Error(`Failed to read WASM file: ${filename} at ${filePath}`)
+      throw new Error(`Failed to read ${kind} file: ${filename} at ${filePath}`)
     }
     return buffer
   }

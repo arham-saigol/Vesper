@@ -144,6 +144,14 @@ function getWasmBaseDir(): string {
     : path.resolve(__dirname, '..', '..', 'public', 'wasm')
 }
 
+function getCMapBaseDir(): string {
+  return path.resolve(__dirname, '..', '..', 'node_modules', 'pdfjs-dist', 'cmaps')
+}
+
+function getStandardFontBaseDir(): string {
+  return path.resolve(__dirname, '..', '..', 'node_modules', 'pdfjs-dist', 'standard_fonts')
+}
+
 ipcMain.handle('resolve-wasm-path', async (_, filename: string) => {
   const baseDir = getWasmBaseDir()
   // Reject path traversal: no separators, only safe chars, must end with .wasm
@@ -157,16 +165,42 @@ ipcMain.handle('resolve-wasm-path', async (_, filename: string) => {
   return resolved
 })
 
+ipcMain.handle('resolve-cmap-path', async (_, filename: string) => {
+  const baseDir = getCMapBaseDir()
+  if (!/^[\w\-]+\.bcmap$/.test(filename)) {
+    throw new Error('Invalid cMap filename')
+  }
+  const resolved = path.resolve(baseDir, filename)
+  if (!resolved.startsWith(baseDir)) {
+    throw new Error('Resolved path outside cMap directory')
+  }
+  return resolved
+})
+
+ipcMain.handle('resolve-standard-font-path', async (_, filename: string) => {
+  const baseDir = getStandardFontBaseDir()
+  if (!/^[\w\-]+\.(pfb|ttf)$/.test(filename)) {
+    throw new Error('Invalid standard font filename')
+  }
+  const resolved = path.resolve(baseDir, filename)
+  if (!resolved.startsWith(baseDir)) {
+    throw new Error('Resolved path outside standard font directory')
+  }
+  return resolved
+})
+
 ipcMain.handle('read-binary-file', async (_, filePath: string) => {
-  const baseDir = getWasmBaseDir()
   const resolved = path.resolve(filePath)
-  if (!resolved.startsWith(baseDir) || !resolved.endsWith('.wasm')) {
-    throw new Error('Access denied: not a valid WASM file')
+  const wasmBase = getWasmBaseDir()
+  const cMapBase = getCMapBaseDir()
+  const standardFontBase = getStandardFontBaseDir()
+  if (!resolved.startsWith(wasmBase) && !resolved.startsWith(cMapBase) && !resolved.startsWith(standardFontBase)) {
+    throw new Error('Access denied: file outside allowed directories')
   }
   try {
     const buffer = await fs.promises.readFile(resolved)
-    // Validate WASM magic header (\x00asm)
-    if (buffer.length < 4 || buffer.readUInt32LE(0) !== 0x6d736100) {
+    // Validate WASM magic header (\x00asm) for wasm files only
+    if (resolved.startsWith(wasmBase) && (buffer.length < 4 || buffer.readUInt32LE(0) !== 0x6d736100)) {
       throw new Error('Invalid WASM file header')
     }
     return new Uint8Array(buffer)
