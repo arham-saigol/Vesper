@@ -1,34 +1,88 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
-import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist'
+import { getDocument, GlobalWorkerOptions, AnnotationMode } from 'pdfjs-dist'
 import type { PDFDocumentProxy } from 'pdfjs-dist'
 
 let workerInitPromise: Promise<void> | null = null
+
+// Polyfill for Math.sumPrecise which pdfjs-dist v5.7 requires but which is not
+// available in all Chromium builds (e.g. Electron 41 / Chromium 146).
+const MATH_SUM_PRECISE_POLYFILL = `
+if (typeof Math.sumPrecise === 'undefined') {
+  Math.sumPrecise = function sumPrecise(iterable) {
+    const values = [];
+    for (const x of iterable) values.push(+x);
+    let sum = 0;
+    let c = 0;
+    for (let i = 0; i < values.length; i++) {
+      const x = values[i];
+      const t = sum + x;
+      if (Math.abs(sum) >= Math.abs(x)) {
+        c += (sum - t) + x;
+      } else {
+        c += (x - t) + sum;
+      }
+      sum = t;
+    }
+    return sum + c;
+  };
+}
+`;
+
+const IS_DEV = window.location.protocol === 'http:' || window.location.protocol === 'https:'
 
 async function initPdfWorker() {
   if (workerInitPromise) return workerInitPromise
 
   workerInitPromise = (async () => {
-    const isDev = window.location.protocol === 'http:' || window.location.protocol === 'https:'
-
-    if (isDev) {
-      GlobalWorkerOptions.workerSrc = '/pdf.worker.mjs'
-      return
-    }
-
     try {
-      const workerCode = await window.electronAPI.getPdfWorker()
-      if (!workerCode) {
-        console.error('[PDFViewer] getPdfWorker returned null')
-        return
+      let workerCode: string
+
+      if (IS_DEV) {
+        const res = await fetch('/pdf.worker.mjs')
+        workerCode = await res.text()
+      } else {
+        workerCode = await window.electronAPI.getPdfWorker()
+        if (!workerCode) {
+          console.error('[PDFViewer] getPdfWorker returned null')
+          return
+        }
       }
-      const blob = new Blob([workerCode], { type: 'application/javascript' })
+
+      const blob = new Blob([MATH_SUM_PRECISE_POLYFILL + workerCode], {
+        type: 'application/javascript',
+      })
       GlobalWorkerOptions.workerSrc = URL.createObjectURL(blob)
     } catch (err) {
-      console.error('[PDFViewer] Failed to load worker via IPC:', err)
+      console.error('[PDFViewer] Failed to load worker:', err)
     }
   })()
 
   return workerInitPromise
+}
+
+/**
+ * Custom BinaryDataFactory for production Electron.
+ *
+ * pdfjs-dist v5.7+ requires WASM decoders (openjpeg, jbig2, qcms) for images.
+ * In a packaged Electron app the renderer runs from a file:// origin and blob
+ * workers cannot reliably resolve relative URLs or fetch file:// URLs.
+ * This factory forwards every binary-data request to the main process via IPC,
+ * which can read the files from inside the asar bundle using Node fs.
+ */
+class ElectronBinaryDataFactory {
+  constructor(_opts: { cMapUrl?: string | null; standardFontDataUrl?: string | null; wasmUrl?: string | null }) {}
+
+  async fetch({ kind, filename }: { kind: string; filename: string }): Promise<Uint8Array> {
+    if (kind !== 'wasmUrl') {
+      throw new Error(`Unsupported binary data kind: ${kind}`)
+    }
+    const filePath = await window.electronAPI.resolveWasmPath(filename)
+    const buffer = await window.electronAPI.readBinaryFile(filePath)
+    if (!buffer) {
+      throw new Error(`Failed to read WASM file: ${filename} at ${filePath}`)
+    }
+    return buffer
+  }
 }
 
 interface PageSize {
@@ -106,7 +160,10 @@ export function PDFViewer({
           setError('Failed to read PDF file')
           return
         }
-        return getDocument({ data }).promise.then(async doc => {
+        const docOpts = IS_DEV
+          ? { data, wasmUrl: new URL('/wasm/', window.location.href).href }
+          : { data, BinaryDataFactory: ElectronBinaryDataFactory }
+        return getDocument(docOpts).promise.then(async doc => {
           if (cancelled) {
             doc.destroy()
             return
@@ -184,29 +241,9 @@ export function PDFViewer({
       return
     }
 
-    const scale = currentZoom / 100
-    const width = size.width * scale
-    const height = size.height * scale
     const dpr = window.devicePixelRatio || 1
-
-    const pixelWidth = Math.max(1, Math.floor(width * dpr))
-    const pixelHeight = Math.max(1, Math.floor(height * dpr))
-
-    if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
-      canvas.width = pixelWidth
-      canvas.height = pixelHeight
-      canvas.style.width = `${Math.floor(width)}px`
-      canvas.style.height = `${Math.floor(height)}px`
-    }
-
-    const ctx = canvas.getContext('2d')
-    if (!ctx) {
-      renderingRef.current.delete(pageNum)
-      return
-    }
-
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    ctx.clearRect(0, 0, width, height)
+    const logicalScale = currentZoom / 100
+    const renderScale = logicalScale * dpr
 
     try {
       const pdfPage = await pdfDoc.getPage(pageNum)
@@ -218,11 +255,29 @@ export function PDFViewer({
         return
       }
 
-      const viewport = pdfPage.getViewport({ scale })
+      const viewport = pdfPage.getViewport({ scale: renderScale })
+
+      const pixelWidth = Math.max(1, Math.floor(viewport.width))
+      const pixelHeight = Math.max(1, Math.floor(viewport.height))
+
+      if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+        canvas.width = pixelWidth
+        canvas.height = pixelHeight
+        canvas.style.width = `${Math.floor(viewport.width / dpr)}px`
+        canvas.style.height = `${Math.floor(viewport.height / dpr)}px`
+      }
+
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        renderingRef.current.delete(pageNum)
+        pdfPage.cleanup()
+        return
+      }
+
       await pdfPage.render({
         canvasContext: ctx,
-        canvas,
         viewport,
+        annotationMode: AnnotationMode.ENABLE,
       }).promise
 
       pdfPage.cleanup()

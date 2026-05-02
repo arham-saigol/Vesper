@@ -138,6 +138,22 @@ ipcMain.handle('get-pdf-worker', async () => {
   }
 })
 
+ipcMain.handle('resolve-wasm-path', async (_, filename: string) => {
+  const baseDir = app.isPackaged
+    ? path.join(__dirname, '..', 'dist', 'wasm')
+    : path.join(__dirname, '..', '..', 'public', 'wasm')
+  return path.join(baseDir, filename)
+})
+
+ipcMain.handle('read-binary-file', async (_, filePath: string) => {
+  try {
+    const buffer = await fs.promises.readFile(filePath)
+    return new Uint8Array(buffer)
+  } catch {
+    return null
+  }
+})
+
 ipcMain.handle('minimize-window', () => {
   const win = BrowserWindow.getFocusedWindow()
   if (win) win.minimize()
