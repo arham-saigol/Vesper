@@ -138,16 +138,37 @@ ipcMain.handle('get-pdf-worker', async () => {
   }
 })
 
+function getWasmBaseDir(): string {
+  return app.isPackaged
+    ? path.resolve(__dirname, '..', 'dist', 'wasm')
+    : path.resolve(__dirname, '..', '..', 'public', 'wasm')
+}
+
 ipcMain.handle('resolve-wasm-path', async (_, filename: string) => {
-  const baseDir = app.isPackaged
-    ? path.join(__dirname, '..', 'dist', 'wasm')
-    : path.join(__dirname, '..', '..', 'public', 'wasm')
-  return path.join(baseDir, filename)
+  const baseDir = getWasmBaseDir()
+  // Reject path traversal: no separators, only safe chars, must end with .wasm
+  if (!/^[\w\-]+\.wasm$/.test(filename)) {
+    throw new Error('Invalid WASM filename')
+  }
+  const resolved = path.resolve(baseDir, filename)
+  if (!resolved.startsWith(baseDir)) {
+    throw new Error('Resolved path outside WASM directory')
+  }
+  return resolved
 })
 
 ipcMain.handle('read-binary-file', async (_, filePath: string) => {
+  const baseDir = getWasmBaseDir()
+  const resolved = path.resolve(filePath)
+  if (!resolved.startsWith(baseDir) || !resolved.endsWith('.wasm')) {
+    throw new Error('Access denied: not a valid WASM file')
+  }
   try {
-    const buffer = await fs.promises.readFile(filePath)
+    const buffer = await fs.promises.readFile(resolved)
+    // Validate WASM magic header (\x00asm)
+    if (buffer.length < 4 || buffer.readUInt32LE(0) !== 0x6d736100) {
+      throw new Error('Invalid WASM file header')
+    }
     return new Uint8Array(buffer)
   } catch {
     return null

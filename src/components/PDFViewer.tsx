@@ -28,6 +28,9 @@ if (typeof Math.sumPrecise === 'undefined') {
 }
 `;
 
+// Detect development mode by checking window.location.protocol:
+// Vite dev server serves the app over http: or https:, while a packaged
+// Electron build loads the renderer via the file: protocol.
 const IS_DEV = window.location.protocol === 'http:' || window.location.protocol === 'https:'
 
 async function initPdfWorker() {
@@ -161,8 +164,8 @@ export function PDFViewer({
           return
         }
         const docOpts = IS_DEV
-          ? { data, wasmUrl: new URL('/wasm/', window.location.href).href }
-          : { data, BinaryDataFactory: ElectronBinaryDataFactory }
+          ? { data, wasmUrl: new URL('/wasm/', window.location.href).href, isEvalSupported: false }
+          : { data, BinaryDataFactory: ElectronBinaryDataFactory, isEvalSupported: false }
         return getDocument(docOpts).promise.then(async doc => {
           if (cancelled) {
             doc.destroy()
