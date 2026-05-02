@@ -29,8 +29,9 @@
   },
   "scripts": {
     "dev": "npm run build:electron && concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
-    "build": "vite build && npm run build:electron",
+    "build": "vite build && node scripts/copy-pdfjs-assets.js && npm run build:electron",
     "build:electron": "tsc -p electron/tsconfig.json",
+    "copy:pdfjs-assets": "node scripts/copy-pdfjs-assets.js",
     "electron:dev": "npm run build:electron && electron .",
     "electron:build": "npm run build && electron-builder"
   },
