@@ -1,4 +1,12 @@
 import { useState, useEffect, useRef, type ReactNode } from 'react'
+import type { HighlightColor } from '../types'
+
+const HIGHLIGHT_COLORS: { color: HighlightColor; bg: string; activeRing: string }[] = [
+  { color: 'yellow', bg: '#fde047', activeRing: 'rgba(253, 224, 71, 0.6)' },
+  { color: 'green', bg: '#86efac', activeRing: 'rgba(134, 239, 172, 0.6)' },
+  { color: 'blue', bg: '#93c5fd', activeRing: 'rgba(147, 197, 253, 0.6)' },
+  { color: 'pink', bg: '#f9a8d4', activeRing: 'rgba(249, 168, 212, 0.6)' },
+]
 
 interface ToolbarProps {
   zoom: number
@@ -7,12 +15,26 @@ interface ToolbarProps {
   onZoomIn: () => void
   onZoomOut: () => void
   onGoToPage: (page: number) => void
+  highlightMode: boolean
+  annotationMode: boolean
+  eraserMode: boolean
+  highlightColor: HighlightColor
+  onToggleHighlightMode: () => void
+  onToggleAnnotationMode: () => void
+  onToggleEraserMode: () => void
+  onChangeColor: (color: HighlightColor) => void
 }
 
-export function Toolbar({ zoom, page, totalPages, onZoomIn, onZoomOut, onGoToPage }: ToolbarProps) {
+export function Toolbar({
+  zoom, page, totalPages, onZoomIn, onZoomOut, onGoToPage,
+  highlightMode, annotationMode, eraserMode, highlightColor,
+  onToggleHighlightMode, onToggleAnnotationMode, onToggleEraserMode, onChangeColor,
+}: ToolbarProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const commitInProgressRef = useRef(false)
   const [inputValue, setInputValue] = useState(String(page))
+
+  const colorPickerVisible = highlightMode || annotationMode
 
   // Sync input with external page changes (e.g. scrolling), but not while focused
   useEffect(() => {
@@ -138,6 +160,56 @@ export function Toolbar({ zoom, page, totalPages, onZoomIn, onZoomOut, onGoToPag
           }}
         />
 
+        <HighlighterButton
+          active={highlightMode}
+          color={highlightColor}
+          onToggle={onToggleHighlightMode}
+        />
+
+        <AnnotationButton
+          active={annotationMode}
+          color={highlightColor}
+          onToggle={onToggleAnnotationMode}
+        />
+
+        <EraserButton
+          active={eraserMode}
+          onToggle={onToggleEraserMode}
+        />
+
+        {colorPickerVisible && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 2 }}>
+            {HIGHLIGHT_COLORS.map(({ color, bg, activeRing }) => (
+              <button
+                key={color}
+                onClick={() => onChangeColor(color)}
+                title={`Color ${color}`}
+                style={{
+                  width: 16,
+                  height: 16,
+                  borderRadius: '50%',
+                  border: 'none',
+                  cursor: 'pointer',
+                  background: bg,
+                  outline: highlightColor === color ? `2px solid ${activeRing}` : 'none',
+                  outlineOffset: 2,
+                  padding: 0,
+                  flexShrink: 0,
+                }}
+              />
+            ))}
+          </div>
+        )}
+
+        <div
+          style={{
+            width: 1,
+            height: 16,
+            background: 'var(--border-strong)',
+            margin: '0 6px',
+          }}
+        />
+
         <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Page</span>
         <input
           ref={inputRef}
@@ -207,6 +279,163 @@ export function Toolbar({ zoom, page, totalPages, onZoomIn, onZoomOut, onGoToPag
         </WindowButton>
       </div>
     </div>
+  )
+}
+
+function HighlighterButton({
+  active,
+  color,
+  onToggle,
+}: {
+  active: boolean
+  color: HighlightColor
+  onToggle: () => void
+}) {
+  const colorMap: Record<HighlightColor, string> = {
+    yellow: '#fde047',
+    green: '#86efac',
+    blue: '#93c5fd',
+    pink: '#f9a8d4',
+  }
+  return (
+    <button
+      onClick={onToggle}
+      title={active ? 'Exit highlight mode' : 'Enter highlight mode'}
+      style={{
+        background: active ? 'var(--bg-card-hover)' : 'transparent',
+        border: 'none',
+        cursor: 'pointer',
+        color: active ? colorMap[color] : 'var(--text-muted)',
+        padding: '4px 8px',
+        borderRadius: 4,
+        fontSize: 16,
+        lineHeight: 1,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        transition: 'background 80ms, color 80ms',
+      }}
+      onMouseEnter={e => {
+        if (!active) {
+          (e.currentTarget as HTMLButtonElement).style.background = 'var(--bg-card-hover)'
+          ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)'
+        }
+      }}
+      onMouseLeave={e => {
+        if (!active) {
+          (e.currentTarget as HTMLButtonElement).style.background = 'transparent'
+          ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-muted)'
+        }
+      }}
+    >
+      <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+        <path d="m9 11-6 6v3h9l3-3" />
+        <path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4" />
+      </svg>
+    </button>
+  )
+}
+
+function AnnotationButton({
+  active,
+  color,
+  onToggle,
+}: {
+  active: boolean
+  color: HighlightColor
+  onToggle: () => void
+}) {
+  const colorMap: Record<HighlightColor, string> = {
+    yellow: '#fde047',
+    green: '#86efac',
+    blue: '#93c5fd',
+    pink: '#f9a8d4',
+  }
+  return (
+    <button
+      onClick={onToggle}
+      title={active ? 'Exit annotation mode' : 'Enter annotation mode'}
+      style={{
+        background: active ? 'var(--bg-card-hover)' : 'transparent',
+        border: 'none',
+        cursor: 'pointer',
+        color: active ? colorMap[color] : 'var(--text-muted)',
+        padding: '4px 8px',
+        borderRadius: 4,
+        fontSize: 16,
+        lineHeight: 1,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        transition: 'background 80ms, color 80ms',
+      }}
+      onMouseEnter={e => {
+        if (!active) {
+          (e.currentTarget as HTMLButtonElement).style.background = 'var(--bg-card-hover)'
+          ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)'
+        }
+      }}
+      onMouseLeave={e => {
+        if (!active) {
+          (e.currentTarget as HTMLButtonElement).style.background = 'transparent'
+          ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-muted)'
+        }
+      }}
+    >
+      <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 19l7-7 3 3-7 7-3-3z" />
+        <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z" />
+        <path d="M2 2l7.586 7.586" />
+        <circle cx="11" cy="11" r="2" />
+      </svg>
+    </button>
+  )
+}
+
+function EraserButton({
+  active,
+  onToggle,
+}: {
+  active: boolean
+  onToggle: () => void
+}) {
+  return (
+    <button
+      onClick={onToggle}
+      title={active ? 'Exit eraser mode' : 'Enter eraser mode'}
+      style={{
+        background: active ? 'var(--bg-card-hover)' : 'transparent',
+        border: 'none',
+        cursor: 'pointer',
+        color: active ? 'var(--destructive)' : 'var(--text-muted)',
+        padding: '4px 8px',
+        borderRadius: 4,
+        fontSize: 16,
+        lineHeight: 1,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        transition: 'background 80ms, color 80ms',
+      }}
+      onMouseEnter={e => {
+        if (!active) {
+          (e.currentTarget as HTMLButtonElement).style.background = 'var(--bg-card-hover)'
+          ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-primary)'
+        }
+      }}
+      onMouseLeave={e => {
+        if (!active) {
+          (e.currentTarget as HTMLButtonElement).style.background = 'transparent'
+          ;(e.currentTarget as HTMLButtonElement).style.color = 'var(--text-muted)'
+        }
+      }}
+    >
+      <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+        <path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21" />
+        <path d="M22 21H7" />
+        <path d="m5 11 9 9" />
+      </svg>
+    </button>
   )
 }
 

@@ -1,5 +1,29 @@
 export type Theme = 'dark' | 'light'
 
+export type HighlightColor = 'yellow' | 'green' | 'blue' | 'pink'
+
+export interface HighlightRect {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+export interface Highlight {
+  id: string
+  page: number
+  color: HighlightColor
+  rects: HighlightRect[]
+  text?: string
+}
+
+export interface Annotation {
+  id: string
+  page: number
+  color: HighlightColor
+  path: string
+}
+
 export interface FolderData {
   id: string
   name: string
@@ -11,6 +35,8 @@ export interface PdfFile {
   id: string
   name: string
   path: string
+  highlights?: Highlight[]
+  annotations?: Annotation[]
 }
 
 export interface LibraryData {

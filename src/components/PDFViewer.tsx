@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
-import { getDocument, GlobalWorkerOptions, AnnotationMode } from 'pdfjs-dist'
+import { getDocument, GlobalWorkerOptions, AnnotationMode, TextLayer } from 'pdfjs-dist'
 import type { PDFDocumentProxy } from 'pdfjs-dist'
+import type { Highlight, Annotation, HighlightColor } from '../types'
 
 let workerInitPromise: Promise<void> | null = null
 
@@ -33,12 +34,26 @@ if (typeof Math.sumPrecise === 'undefined') {
 // Electron build loads the renderer via the file: protocol.
 const IS_DEV = window.location.protocol === 'http:' || window.location.protocol === 'https:'
 
+function getPageFromPoint(
+  x: number,
+  y: number,
+  pageElements: Map<number, HTMLDivElement>,
+): { pageNum: number; el: HTMLDivElement; rect: DOMRect } | null {
+  for (const [pageNum, el] of pageElements) {
+    const rect = el.getBoundingClientRect()
+    if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+      return { pageNum, el, rect }
+    }
+  }
+  return null
+}
+
 async function initPdfWorker() {
   if (workerInitPromise) return workerInitPromise
 
   workerInitPromise = (async () => {
     try {
-      let workerCode: string
+      let workerCode: string | null = null
 
       if (IS_DEV) {
         const res = await fetch('/pdf.worker.mjs')
@@ -73,10 +88,8 @@ async function initPdfWorker() {
  * which can read the files from inside the asar bundle using Node fs.
  */
 class ElectronBinaryDataFactory {
-  private opts: { cMapUrl?: string | null; standardFontDataUrl?: string | null; wasmUrl?: string | null }
-
-  constructor(opts: { cMapUrl?: string | null; standardFontDataUrl?: string | null; wasmUrl?: string | null }) {
-    this.opts = opts
+  constructor(_opts: { cMapUrl?: string | null; standardFontDataUrl?: string | null; wasmUrl?: string | null }) {
+    // _opts reserved for future binary-data resolution logic
   }
 
   async fetch({ kind, filename }: { kind: string; filename: string }): Promise<Uint8Array> {
@@ -107,6 +120,13 @@ interface PageSize {
   height: number
 }
 
+const HIGHLIGHT_COLOR_MAP: Record<HighlightColor, string> = {
+  yellow: '#fde047',
+  green: '#86efac',
+  blue: '#93c5fd',
+  pink: '#f9a8d4',
+}
+
 interface PDFViewerProps {
   filePath: string
   zoom: number
@@ -114,6 +134,16 @@ interface PDFViewerProps {
   onPageChange: (page: number) => void
   onTotalPagesChange: (total: number) => void
   onNavigationComplete: () => void
+  highlights: Highlight[]
+  annotations: Annotation[]
+  highlightMode: boolean
+  annotationMode: boolean
+  eraserMode: boolean
+  activeColor: HighlightColor
+  onAddHighlights: (highlights: Highlight[]) => void
+  onDeleteHighlight: (id: string) => void
+  onAddAnnotations: (annotations: Annotation[]) => void
+  onDeleteAnnotation: (id: string) => void
 }
 
 export function PDFViewer({
@@ -123,10 +153,21 @@ export function PDFViewer({
   onPageChange,
   onTotalPagesChange,
   onNavigationComplete,
+  highlights,
+  annotations,
+  highlightMode,
+  annotationMode,
+  eraserMode,
+  activeColor,
+  onAddHighlights,
+  onDeleteHighlight,
+  onAddAnnotations,
+  onDeleteAnnotation,
 }: PDFViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const pageElementsRef = useRef<Map<number, HTMLDivElement>>(new Map())
   const canvasElementsRef = useRef<Map<number, HTMLCanvasElement>>(new Map())
+  const textLayerElementsRef = useRef<Map<number, HTMLDivElement>>(new Map())
   const renderedZoomRef = useRef<Map<number, number>>(new Map())
   const renderingRef = useRef<Map<number, boolean>>(new Map())
   const rerenderRequestedRef = useRef<Map<number, boolean>>(new Map())
@@ -137,6 +178,17 @@ export function PDFViewer({
   const prevZoomRef = useRef(zoom)
   const onPageChangeRef = useRef(onPageChange)
   onPageChangeRef.current = onPageChange
+
+  // Drawing state refs
+  const isDraggingRef = useRef(false)
+  const dragStartRef = useRef<{ page: number; x: number; y: number } | null>(null)
+  const isDrawingRef = useRef(false)
+  const currentAnnotationRef = useRef<{ page: number; points: { x: number; y: number }[] } | null>(null)
+  const liveHighlightRafRef = useRef<number | null>(null)
+  const liveAnnotationRafRef = useRef<number | null>(null)
+
+  const [liveHighlight, setLiveHighlight] = useState<{ page: number; rect: { x: number; y: number; w: number; h: number } } | null>(null)
+  const [liveAnnotation, setLiveAnnotation] = useState<{ page: number; path: string } | null>(null)
 
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null)
   const [numPages, setNumPages] = useState(0)
@@ -150,6 +202,22 @@ export function PDFViewer({
   zoomRef.current = zoom
   const pageSizesRef = useRef(pageSizes)
   pageSizesRef.current = pageSizes
+  const highlightModeRef = useRef(highlightMode)
+  highlightModeRef.current = highlightMode
+  const annotationModeRef = useRef(annotationMode)
+  annotationModeRef.current = annotationMode
+  const eraserModeRef = useRef(eraserMode)
+  eraserModeRef.current = eraserMode
+  const activeColorRef = useRef(activeColor)
+  activeColorRef.current = activeColor
+  const highlightsRef = useRef(highlights)
+  highlightsRef.current = highlights
+  const annotationsRef = useRef(annotations)
+  annotationsRef.current = annotations
+  const onAddHighlightsRef = useRef(onAddHighlights)
+  onAddHighlightsRef.current = onAddHighlights
+  const onAddAnnotationsRef = useRef(onAddAnnotations)
+  onAddAnnotationsRef.current = onAddAnnotations
 
   // ─── Load PDF and pre-fetch page sizes ───
   useEffect(() => {
@@ -163,6 +231,7 @@ export function PDFViewer({
     visiblePagesRef.current.clear()
     pageElementsRef.current.clear()
     canvasElementsRef.current.clear()
+    textLayerElementsRef.current.clear()
     scrollAnchorRef.current = { page: 1, ratio: 0 }
     lastReportedPageRef.current = 1
 
@@ -293,9 +362,30 @@ export function PDFViewer({
 
       await pdfPage.render({
         canvasContext: ctx,
+        canvas,
         viewport,
         annotationMode: AnnotationMode.ENABLE,
       }).promise
+
+      // Render text layer for selectable text
+      if (zoomRef.current !== currentZoom || pdfRef.current !== pdfDoc) {
+        pdfPage.cleanup()
+        rerenderRequestedRef.current.set(pageNum, true)
+        renderingRef.current.delete(pageNum)
+        return
+      }
+
+      const textLayerDiv = textLayerElementsRef.current.get(pageNum)
+      if (textLayerDiv) {
+        textLayerDiv.innerHTML = ''
+        const textViewport = pdfPage.getViewport({ scale: logicalScale })
+        const textLayer = new TextLayer({
+          textContentSource: pdfPage.streamTextContent(),
+          container: textLayerDiv,
+          viewport: textViewport,
+        })
+        await textLayer.render()
+      }
 
       pdfPage.cleanup()
     } catch (err) {
@@ -343,6 +433,22 @@ export function PDFViewer({
           }
         } else {
           canvasElementsRef.current.delete(pageNum)
+        }
+      }
+    })
+  }, [numPages, renderPage])
+
+  const textLayerRefCallbacks = useMemo(() => {
+    return Array.from({ length: numPages }, (_, i) => {
+      const pageNum = i + 1
+      return (el: HTMLDivElement | null) => {
+        if (el) {
+          textLayerElementsRef.current.set(pageNum, el)
+          if (visiblePagesRef.current.has(pageNum) && !renderedZoomRef.current.has(pageNum)) {
+            renderPage(pageNum)
+          }
+        } else {
+          textLayerElementsRef.current.delete(pageNum)
         }
       }
     })
@@ -493,6 +599,127 @@ export function PDFViewer({
     onNavigationComplete()
   }, [navigateTo, numPages, onNavigationComplete])
 
+  // ─── Raw rectangular highlight & freehand annotation capture ───
+  useEffect(() => {
+    if (!highlightMode && !annotationMode) {
+      setLiveHighlight(null)
+      setLiveAnnotation(null)
+      return
+    }
+
+    const toPercent = (val: number, max: number) => (val / max) * 100
+
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.button !== 0) return
+      const hit = getPageFromPoint(e.clientX, e.clientY, pageElementsRef.current)
+      if (!hit) return
+      const x = toPercent(e.clientX - hit.rect.left, hit.rect.width)
+      const y = toPercent(e.clientY - hit.rect.top, hit.rect.height)
+
+      if (highlightModeRef.current) {
+        dragStartRef.current = { page: hit.pageNum, x, y }
+        isDraggingRef.current = true
+      } else if (annotationModeRef.current) {
+        currentAnnotationRef.current = { page: hit.pageNum, points: [{ x, y }] }
+        isDrawingRef.current = true
+      }
+    }
+
+    const onPointerMove = (e: PointerEvent) => {
+      if (isDraggingRef.current && dragStartRef.current) {
+        if (liveHighlightRafRef.current) return
+        liveHighlightRafRef.current = requestAnimationFrame(() => {
+          liveHighlightRafRef.current = null
+          const hit = getPageFromPoint(e.clientX, e.clientY, pageElementsRef.current)
+          const start = dragStartRef.current
+          if (!hit || !start || hit.pageNum !== start.page) return
+          const x = toPercent(e.clientX - hit.rect.left, hit.rect.width)
+          const y = toPercent(e.clientY - hit.rect.top, hit.rect.height)
+          setLiveHighlight({
+            page: hit.pageNum,
+            rect: {
+              x: Math.min(start.x, x),
+              y: Math.min(start.y, y),
+              w: Math.abs(x - start.x),
+              h: Math.abs(y - start.y),
+            },
+          })
+        })
+      } else if (isDrawingRef.current && currentAnnotationRef.current) {
+        if (liveAnnotationRafRef.current) return
+        liveAnnotationRafRef.current = requestAnimationFrame(() => {
+          liveAnnotationRafRef.current = null
+          const hit = getPageFromPoint(e.clientX, e.clientY, pageElementsRef.current)
+          const ann = currentAnnotationRef.current
+          if (!hit || !ann || hit.pageNum !== ann.page) return
+          const x = toPercent(e.clientX - hit.rect.left, hit.rect.width)
+          const y = toPercent(e.clientY - hit.rect.top, hit.rect.height)
+          ann.points.push({ x, y })
+          const path = ann.points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ')
+          setLiveAnnotation({ page: ann.page, path })
+        })
+      }
+    }
+
+    const onPointerUp = (e: PointerEvent) => {
+      if (isDraggingRef.current) {
+        isDraggingRef.current = false
+        const start = dragStartRef.current
+        dragStartRef.current = null
+        setLiveHighlight(null)
+        if (!start) return
+
+        const hit = getPageFromPoint(e.clientX, e.clientY, pageElementsRef.current)
+        if (!hit || hit.pageNum !== start.page) return
+        const x = toPercent(e.clientX - hit.rect.left, hit.rect.width)
+        const y = toPercent(e.clientY - hit.rect.top, hit.rect.height)
+        const w = Math.abs(x - start.x)
+        const h = Math.abs(y - start.y)
+        if (w < 0.5 || h < 0.5) return
+
+        onAddHighlightsRef.current([{
+          id: Math.random().toString(36).slice(2, 9),
+          page: start.page,
+          color: activeColorRef.current,
+          rects: [{
+            x: Math.min(start.x, x),
+            y: Math.min(start.y, y),
+            w,
+            h,
+          }],
+        }])
+      } else if (isDrawingRef.current) {
+        isDrawingRef.current = false
+        const ann = currentAnnotationRef.current
+        currentAnnotationRef.current = null
+        setLiveAnnotation(null)
+        if (!ann || ann.points.length < 2) return
+
+        const path = ann.points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ')
+        onAddAnnotationsRef.current([{
+          id: Math.random().toString(36).slice(2, 9),
+          page: ann.page,
+          color: activeColorRef.current,
+          path,
+        }])
+      }
+    }
+
+    document.addEventListener('pointerdown', onPointerDown)
+    document.addEventListener('pointermove', onPointerMove)
+    document.addEventListener('pointerup', onPointerUp)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown)
+      document.removeEventListener('pointermove', onPointerMove)
+      document.removeEventListener('pointerup', onPointerUp)
+      if (liveHighlightRafRef.current) cancelAnimationFrame(liveHighlightRafRef.current)
+      if (liveAnnotationRafRef.current) cancelAnimationFrame(liveAnnotationRafRef.current)
+    }
+  }, [highlightMode, annotationMode])
+
+  const modeActive = highlightMode || annotationMode
+  const cursorStyle = modeActive ? 'crosshair' : 'default'
+
   if (error) {
     return (
       <div
@@ -532,6 +759,8 @@ export function PDFViewer({
         const scale = zoom / 100
         const width = size ? size.width * scale : 0
         const height = size ? size.height * scale : 0
+        const pageHighlights = highlights.filter(h => h.page === pageNum)
+        const pageAnnotations = annotations.filter(a => a.page === pageNum)
 
         return (
           <div
@@ -548,6 +777,7 @@ export function PDFViewer({
               minWidth: Math.floor(width) || 200,
               minHeight: Math.floor(height) || 280,
               background: 'var(--bg-primary)',
+              position: 'relative',
             }}
           >
             <canvas
@@ -555,10 +785,123 @@ export function PDFViewer({
               className="pdf-page-canvas"
               style={{
                 display: 'block',
-                cursor: 'default',
+                cursor: cursorStyle,
                 willChange: 'transform',
               }}
             />
+            <div
+              ref={textLayerRefCallbacks[i]}
+              className="pdf-text-layer"
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                zIndex: 2,
+                cursor: cursorStyle,
+                userSelect: modeActive ? 'none' : 'auto',
+              }}
+            />
+            {/* Highlight layer */}
+            <div
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                zIndex: 3,
+                pointerEvents: 'none',
+              }}
+            >
+              {pageHighlights.map(h =>
+                h.rects.map((rect, idx) => (
+                  <div
+                    key={`${h.id}-${idx}`}
+                    onContextMenu={e => {
+                      e.preventDefault()
+                      onDeleteHighlight(h.id)
+                    }}
+                    onClick={eraserMode ? e => { e.stopPropagation(); onDeleteHighlight(h.id) } : undefined}
+                    style={{
+                      position: 'absolute',
+                      left: `${rect.x}%`,
+                      top: `${rect.y}%`,
+                      width: `${rect.w}%`,
+                      height: `${rect.h}%`,
+                      backgroundColor: HIGHLIGHT_COLOR_MAP[h.color],
+                      opacity: 0.35,
+                      mixBlendMode: 'multiply',
+                      pointerEvents: highlightMode ? 'none' : 'auto',
+                      cursor: highlightMode ? 'inherit' : 'pointer',
+                    }}
+                    title={h.text || 'Highlight'}
+                  />
+                ))
+              )}
+              {liveHighlight?.page === pageNum && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: `${liveHighlight.rect.x}%`,
+                    top: `${liveHighlight.rect.y}%`,
+                    width: `${liveHighlight.rect.w}%`,
+                    height: `${liveHighlight.rect.h}%`,
+                    backgroundColor: HIGHLIGHT_COLOR_MAP[activeColor],
+                    opacity: 0.25,
+                    mixBlendMode: 'multiply',
+                    pointerEvents: 'none',
+                  }}
+                />
+              )}
+            </div>
+            {/* Annotation layer */}
+            <svg
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: '100%',
+                zIndex: 4,
+                pointerEvents: 'none',
+              }}
+              viewBox="0 0 100 100"
+              preserveAspectRatio="none"
+            >
+              {pageAnnotations.map(ann => (
+                <path
+                  key={ann.id}
+                  d={ann.path}
+                  stroke={HIGHLIGHT_COLOR_MAP[ann.color]}
+                  strokeWidth={0.25}
+                  fill="none"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{
+                    pointerEvents: annotationMode ? 'none' : (eraserMode ? 'all' : 'stroke'),
+                    cursor: annotationMode ? 'inherit' : 'pointer',
+                  }}
+                  onContextMenu={e => {
+                    e.preventDefault()
+                    onDeleteAnnotation(ann.id)
+                  }}
+                  onClick={eraserMode ? e => { e.stopPropagation(); onDeleteAnnotation(ann.id) } : undefined}
+                />
+              ))}
+              {liveAnnotation?.page === pageNum && (
+                <path
+                  d={liveAnnotation.path}
+                  stroke={HIGHLIGHT_COLOR_MAP[activeColor]}
+                  strokeWidth={0.25}
+                  fill="none"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  pointerEvents="none"
+                />
+              )}
+            </svg>
           </div>
         )
       })}

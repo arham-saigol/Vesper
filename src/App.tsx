@@ -3,7 +3,7 @@ import { Sidebar } from './components/Sidebar'
 import { PDFViewer } from './components/PDFViewer'
 import { Toolbar } from './components/Toolbar'
 import { EmptyState } from './components/EmptyState'
-import type { FolderData, PdfFile, Theme, LibraryData } from './types'
+import type { FolderData, PdfFile, Theme, LibraryData, Highlight, Annotation, HighlightColor } from './types'
 
 function generateId() {
   return Math.random().toString(36).slice(2, 9)
@@ -23,6 +23,10 @@ export default function App() {
   const [navigateTo, setNavigateTo] = useState<number | null>(null)
   const [totalPages, setTotalPages] = useState(0)
   const [loaded, setLoaded] = useState(false)
+  const [highlightMode, setHighlightMode] = useState(false)
+  const [annotationMode, setAnnotationMode] = useState(false)
+  const [eraserMode, setEraserMode] = useState(false)
+  const [activeColor, setActiveColor] = useState<HighlightColor>('yellow')
 
   // Load library on mount
   useEffect(() => {
@@ -83,7 +87,108 @@ export default function App() {
     setPage(1)
     setNavigateTo(null)
     setZoom(100)
+    setHighlightMode(false)
+    setAnnotationMode(false)
+    setEraserMode(false)
   }, [])
+
+  const toggleHighlightMode = useCallback(() => {
+    setHighlightMode(prev => {
+      const next = !prev
+      if (next) setAnnotationMode(false)
+      return next
+    })
+  }, [])
+
+  const toggleAnnotationMode = useCallback(() => {
+    setAnnotationMode(prev => {
+      const next = !prev
+      if (next) {
+        setHighlightMode(false)
+        setEraserMode(false)
+      }
+      return next
+    })
+  }, [])
+
+  const toggleEraserMode = useCallback(() => {
+    setEraserMode(prev => {
+      const next = !prev
+      if (next) {
+        setHighlightMode(false)
+        setAnnotationMode(false)
+      }
+      return next
+    })
+  }, [])
+
+  const addHighlights = useCallback((highlights: Highlight[]) => {
+    if (!currentFile) return
+    setFolders(prev =>
+      prev.map(folder => ({
+        ...folder,
+        files: folder.files.map(f =>
+          f.id === currentFile.id
+            ? { ...f, highlights: [...(f.highlights || []), ...highlights] }
+            : f
+        ),
+      }))
+    )
+    setCurrentFile(prev =>
+      prev ? { ...prev, highlights: [...(prev.highlights || []), ...highlights] } : prev
+    )
+  }, [currentFile])
+
+  const deleteHighlight = useCallback((id: string) => {
+    if (!currentFile) return
+    setFolders(prev =>
+      prev.map(folder => ({
+        ...folder,
+        files: folder.files.map(f =>
+          f.id === currentFile.id
+            ? { ...f, highlights: (f.highlights || []).filter(h => h.id !== id) }
+            : f
+        ),
+      }))
+    )
+    setCurrentFile(prev =>
+      prev ? { ...prev, highlights: (prev.highlights || []).filter(h => h.id !== id) } : prev
+    )
+  }, [currentFile])
+
+  const addAnnotations = useCallback((annotations: Annotation[]) => {
+    if (!currentFile) return
+    setFolders(prev =>
+      prev.map(folder => ({
+        ...folder,
+        files: folder.files.map(f =>
+          f.id === currentFile.id
+            ? { ...f, annotations: [...(f.annotations || []), ...annotations] }
+            : f
+        ),
+      }))
+    )
+    setCurrentFile(prev =>
+      prev ? { ...prev, annotations: [...(prev.annotations || []), ...annotations] } : prev
+    )
+  }, [currentFile])
+
+  const deleteAnnotation = useCallback((id: string) => {
+    if (!currentFile) return
+    setFolders(prev =>
+      prev.map(folder => ({
+        ...folder,
+        files: folder.files.map(f =>
+          f.id === currentFile.id
+            ? { ...f, annotations: (f.annotations || []).filter(a => a.id !== id) }
+            : f
+        ),
+      }))
+    )
+    setCurrentFile(prev =>
+      prev ? { ...prev, annotations: (prev.annotations || []).filter(a => a.id !== id) } : prev
+    )
+  }, [currentFile])
 
   const zoomIn = useCallback(() => {
     setZoom(prev => Math.min(prev + 25, 300))
@@ -161,6 +266,14 @@ export default function App() {
               onZoomIn={zoomIn}
               onZoomOut={zoomOut}
               onGoToPage={goToPage}
+              highlightMode={highlightMode}
+              annotationMode={annotationMode}
+              eraserMode={eraserMode}
+              highlightColor={activeColor}
+              onToggleHighlightMode={toggleHighlightMode}
+              onToggleAnnotationMode={toggleAnnotationMode}
+              onToggleEraserMode={toggleEraserMode}
+              onChangeColor={setActiveColor}
             />
             <PDFViewer
               filePath={currentFile.path}
@@ -169,6 +282,16 @@ export default function App() {
               onPageChange={setPage}
               onTotalPagesChange={setTotalPages}
               onNavigationComplete={handleNavigationComplete}
+              highlights={currentFile.highlights || []}
+              annotations={currentFile.annotations || []}
+              highlightMode={highlightMode}
+              annotationMode={annotationMode}
+              eraserMode={eraserMode}
+              activeColor={activeColor}
+              onAddHighlights={addHighlights}
+              onDeleteHighlight={deleteHighlight}
+              onAddAnnotations={addAnnotations}
+              onDeleteAnnotation={deleteAnnotation}
             />
           </>
         ) : (
