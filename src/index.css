@@ -99,6 +99,30 @@ html, body, #root {
   filter: invert(0.851) hue-rotate(180deg) brightness(1.05) contrast(1.05);
 }
 
+/* PDF Text Layer */
+.pdf-text-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
+  line-height: 1;
+}
+
+.pdf-text-layer span {
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  color: transparent;
+  pointer-events: auto;
+}
+
+.pdf-text-layer ::selection {
+  background: rgba(100, 160, 255, 0.3);
+}
+
 /* Frameless drag region */
 .drag-region {
   -webkit-app-region: drag;
